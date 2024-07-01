@@ -29,6 +29,7 @@ import {AddressToBytes32Lib} from "src/helper/AddressToBytes32Lib.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Deployer} from "src/helper/Deployer.sol";
 import {AtomicSolverV4} from "src/atomic-queue/AtomicSolverV4.sol";
+import "forge-std/console.sol";
 
 import {Test, stdStorage, StdStorage, stdError, console} from "@forge-std/Test.sol";
 
@@ -100,7 +101,7 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
     function setUp() external {
         // Setup forked environment.
         string memory rpcKey = "MAINNET_RPC_URL";
-        uint256 blockNumber = 20193602;
+        uint256 blockNumber = 20193602;  //change
         _startFork(rpcKey, blockNumber);
 
         registry = Registry(etherFiLiquid1.registry());
@@ -174,6 +175,8 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
         //     "Total assets should not change after migrating aave assets."
         // );
 
+        ///////////////////start here
+
         ERC20[] memory tokensToMigrate = new ERC20[](3);
         tokensToMigrate[0] = WETH;
         tokensToMigrate[1] = WEETH;
@@ -244,6 +247,12 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
         vm.expectRevert(bytes("UNAUTHORIZED"));
         teller.deposit(WETH, 1, 0);
 
+
+
+    //Start transaction 1
+
+
+
         // Registry multisig
         // - Trusts the liquid migration adaptor and position
         // - Sets the migration share price oracle to be the parity share price oracle
@@ -260,6 +269,12 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
         registry.distrustPosition(ILLIQUID_MIGRATION_POSITION);
         registry.batchPause(_add);
         vm.stopPrank();
+
+
+
+    //end transaction 1 
+
+    //start transaction 2
 
         /// @notice Joint Multisig TX Nonce 11.
         vm.startPrank(liquidMultisig);
@@ -296,6 +311,25 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
         etherFiLiquid1.toggleIgnorePause();
         vm.stopPrank();
 
+
+    //end transaction 2
+    //add vars uncomment later ******
+    // address[] memory _add = new address[](1);
+    // _add[0] = address(etherFiLiquid1);
+    //tests
+    //1. verify boring vault share price (Accountant) matches liquidV1 share price
+    uint256 accountant_rate = accountant.getRate();
+    uint256 liquidV1_rate = etherFiLiquid1.previewRedeem(1e18);
+    assertApproxEqAbs(liquidV1_rate, accountant_rate, 10); //5 wei tolerance
+    console.log("bv rate, v1 rate", accountant_rate, liquidV1_rate);
+    //2. verify that liquidV1 owns vast majority of boringVault shares
+    assert(boringVault.totalSupply() == boringVault.balanceOf(address(etherFiLiquid1)));
+    console.log("bv supply, v1 balance", boringVault.totalSupply(), boringVault.balanceOf(address(etherFiLiquid1)));
+    //3. verify liquidV1 totalSupply matches total boring vault shares
+    assertApproxEqAbs(etherFiLiquid1.totalSupply(), boringVault.totalSupply(), 10);
+    console.log("v1 supply, bv supply", etherFiLiquid1.totalSupply(), boringVault.totalSupply());
+
+    //start transaction 3
         // If everything looks good registry can unpause the cellar.
         /// @notice Registry Multisig TX Nonce 2.
         vm.startPrank(registryMultisig);
@@ -308,6 +342,26 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
             0.0001e18,
             "Total assets should not change after completing migration."
         );
+
+    //end transaction 3 
+    //tests
+    //1. check deposits are disabled from liquidV1
+    //2. check withdraw are allowed in liquidV1
+    address V = address(0x9912F96F219337b5eFcF21B4D2e88F4Fbee93881);
+    vm.startPrank(V);
+    vm.expectRevert();
+    etherFiLiquid1.deposit(1, V);
+    vm.record();
+    uint256 shares = etherFiLiquid1.withdraw(1, V, V);
+    console.log("shares", shares);
+    vm.stopPrank();
+    uint256 accountant_rate2 = accountant.getRate();
+    uint256 liquidV1_rate2 = etherFiLiquid1.previewRedeem(1e18);
+    assertApproxEqAbs(liquidV1_rate2, accountant_rate2, 10); //5 wei tolerance
+    console.log("bv rate, v1 rate", accountant_rate2, liquidV1_rate2);
+    //3. check price is the same after withdrawal redundant check
+
+    //start transaction 4 
 
         /// @notice Joint Multisig TX Nonce 12.
         vm.startPrank(liquidMultisig);
@@ -333,6 +387,8 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
         );
         vm.stopPrank();
 
+        ///////////////end transaction 4
+
         // Users can now deposit into the BoringVault.
         deal(address(WETH), user, 1e18);
         WETH.safeApprove(address(boringVault), 1e18);
@@ -350,9 +406,10 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
             assertApproxEqAbs(realSharePrice, approxSharePrice, 1, "Real share price should be the same as approx.");
         }
 
-        assertEq(
+        assertApproxEqAbs(
             etherFiLiquid1.totalSupply(),
             boringVault.balanceOf(address(etherFiLiquid1)),
+            5,
             "BV share balance should match V1 total supply."
         );
 
@@ -435,8 +492,13 @@ contract EtherFiLiquid1MigrationTest is Test, MainnetAddresses {
 
         // Since AtomicQueue already has role 77, we just need the multisig to give the atomic solver the solver role.
         vm.prank(liquidMultisig);
+
+        //transaction 5
         rolesAuthority.setUserRole(address(atomicSolver), SOLVER_ROLE, true);
 
+        //end transaction 5
+
+        
         // Remove wETH from user and solver so we know it comes from BoringVault.
         deal(address(WETH), user, 0);
         deal(address(WETH), dev1Address, 0);
